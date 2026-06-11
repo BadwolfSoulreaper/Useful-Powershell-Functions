@@ -1,0 +1,16 @@
+Function Get-AlertColor {
+    param($alertPercent)
+    switch ([math]::round($alertPercent, 0)) {
+        { $_ -in 0..9 } { '#006400'; break }
+        { $_ -in 10..19 } { '#228B22'; break }
+        { $_ -in 20..29 } { '#32CD32'; break }
+        { $_ -in 30..39 } { '#9ACD32'; break }
+        { $_ -in 40..49 } { '#CCCC00'; break }
+        { $_ -in 50..59 } { '#FFD700'; break }
+        { $_ -in 60..69 } { '#FFA500'; break }
+        { $_ -in 70..79 } { '#FF8C00'; break }
+        { $_ -in 80..89 } { '#FF4500'; break }
+        { $_ -ge 90 } { '#FF0000'; break }
+        default { '#000000' }
+    }
+}
