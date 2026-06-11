@@ -1,0 +1,11 @@
+Function Get-PrettyDate
+{
+  Switch ((Get-Date).Day)
+  {
+    { $_ -in 1,21,31 } { $dateSuffix = 'st' }
+    { $_ -in 2,22 }    { $dateSuffix = 'nd' }
+    { $_ -in 3,23 }    { $dateSuffix = 'rd' }
+    default            { $dateSuffix = 'th' }
+  }
+  Write-Output("$((Get-date).Day)$dateSuffix of $(Get-date -Format 'MMMM yyyy - HH:mm')")
+}
