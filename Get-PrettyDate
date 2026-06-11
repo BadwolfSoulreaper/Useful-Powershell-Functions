@@ -1,17 +1,31 @@
-Function Get-PrettyDate
-{
+function Get-PrettyDate {
+    <#
+    .SYNOPSIS
+    Formats a date as "1st of January 2025 - 13:45".
+    
+    .PARAMETER Date
+    The date to format. If omitted, the current date and time are used.
+    
+    .EXAMPLE
+    Get-PrettyDate
+    Returns the current date and time in a formatted string.
+    
+    .EXAMPLE
+    Get-PrettyDate -Date '2025-01-21'
+    Returns "21st of January 2025 - 00:00".
+    #>
     param([datetime]$Date)
-    if(!($Date))
-    {
+
+    if (!$Date) {
         $Date = Get-Date
     }
 
-    Switch ($Date.Day)
-    {
+    switch ($Date.Day) {
         { $_ -in 1,21,31 } { $dateSuffix = 'st' }
         { $_ -in 2,22 }    { $dateSuffix = 'nd' }
         { $_ -in 3,23 }    { $dateSuffix = 'rd' }
-        default{ $dateSuffix = 'th' }
+        default            { $dateSuffix = 'th' }
     }
-    Write-Output("$($Date.Day)$dateSuffix of $(Get-date -Date $Date -Format 'MMMM yyyy - HH:mm')")
+
+    "$($Date.Day)$dateSuffix of $(Get-Date -Date $Date -Format 'MMMM yyyy - HH:mm')"
 }
