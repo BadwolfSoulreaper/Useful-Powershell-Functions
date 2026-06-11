@@ -1,7 +1,37 @@
-Function Get-AlertColor {
-    param($alertPercent)
-    switch ([math]::round($alertPercent, 0)) {
-        { $_ -in 0..9 } { '#006400'; break }
+function Get-AlertColor {
+<#
+.SYNOPSIS
+Returns a hexadecimal colour code based on an alert percentage.
+
+.DESCRIPTION
+Maps a percentage value to a colour ranging from dark green (low alert)
+to red (high alert). The supplied percentage is rounded to the nearest
+whole number before evaluation.
+
+.PARAMETER AlertPercent
+The alert percentage to evaluate. This parameter is mandatory.
+
+.EXAMPLE
+Get-AlertColor -AlertPercent 15
+
+Returns:
+#228B22
+
+.EXAMPLE
+Get-AlertColor -AlertPercent 87.6
+
+Returns:
+#FF4500
+#>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [double]$AlertPercent
+    )
+
+    switch ([math]::Round($AlertPercent, 0)) {
+        { $_ -in 0..9 }   { '#006400'; break }
         { $_ -in 10..19 } { '#228B22'; break }
         { $_ -in 20..29 } { '#32CD32'; break }
         { $_ -in 30..39 } { '#9ACD32'; break }
@@ -10,7 +40,7 @@ Function Get-AlertColor {
         { $_ -in 60..69 } { '#FFA500'; break }
         { $_ -in 70..79 } { '#FF8C00'; break }
         { $_ -in 80..89 } { '#FF4500'; break }
-        { $_ -ge 90 } { '#FF0000'; break }
-        default { '#000000' }
+        { $_ -ge 90 }     { '#FF0000'; break }
+        default           { '#000000' }
     }
 }
