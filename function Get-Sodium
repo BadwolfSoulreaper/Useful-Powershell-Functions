@@ -1,0 +1,5 @@
+function Get-Sodium
+{
+  param($Salt)
+  Return ($Salt *1000)/2.5
+}
