@@ -1,0 +1,33 @@
+        Function Get-TrendLine {
+            Param($Data)
+            # X values are the array positions: 0, 1, 2, 3...
+            $xValues = 0..($data.Count - 1)
+
+            # Calculate averages
+            $xAverage = ($xValues | Measure-Object -Average).Average
+            $yAverage = ($data    | Measure-Object -Average).Average
+
+            # Calculate the slope
+            $top = 0
+            $bottom = 0
+
+            for ($i = 0; $i -lt $data.Count; $i++) {
+                $xDifference = $xValues[$i] - $xAverage
+                $yDifference = $data[$i] - $yAverage
+
+                $top += $xDifference * $yDifference
+                $bottom += $xDifference * $xDifference
+            }
+
+            $slope = $top / $bottom
+
+            # Calculate where the trendline begins
+            $intercept = $yAverage - ($slope * $xAverage)
+
+            # Generate one trendline value for each original data value
+            $trendline = foreach ($x in $xValues) {
+                [math]::Round($intercept + ($slope * $x), 2)
+            }
+
+            Return $trendline | Select-Object @{N = 'TrendLine'; E = { $_ } }
+        }
