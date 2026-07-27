@@ -1,44 +1,193 @@
-        Function Get-TrendLine {
-            Param($Data)
-            Function Get-Trend {
-                param($First,$Last)
-                $Percent = (100/$First)*$Last
-                if($Percent -gt 105) {$Trend = 'Increasing'}
-                elseif($Percent -lt 95) {$Trend = 'Decreasing'}
-                else{$Trend = 'Steady'}
-                Return $Trend
-            }
-            # X values are the array positions: 0, 1, 2, 3...
-            $xValues = 0..($data.Count - 1)
+Function Get-TrendLine {
+    <#
+    .SYNOPSIS
+    Calculates a linear trendline for a sequence of numeric data and identifies
+    the overall direction as Increasing, Decreasing, or Steady.
 
-            # Calculate averages
-            $xAverage = ($xValues | Measure-Object -Average).Average
-            $yAverage = ($data    | Measure-Object -Average).Average
+    .DESCRIPTION
+    Get-TrendLine uses simple linear regression to calculate a best-fit trendline
+    for an ordered collection of numeric values.
 
-            # Calculate the slope
-            $top = 0
-            $bottom = 0
+    The function is intended to be used alongside a graphing or charting function.
+    The original data can be plotted as one series and the values returned in the
+    Trendline property can be plotted as a second series to show the overall
+    direction of the data more clearly.
 
-            for ($i = 0; $i -lt $data.Count; $i++) {
-                $xDifference = $xValues[$i] - $xAverage
-                $yDifference = $data[$i] - $yAverage
+    One trendline value is generated for every value supplied to the function.
+    For example, if the Data parameter contains 30 values, the returned Trendline
+    property will also contain 30 values. This allows the original data and the
+    calculated trendline to share the same horizontal axis positions.
 
-                $top += $xDifference * $yDifference
-                $bottom += $xDifference * $xDifference
-            }
+    The trendline is calculated using the positions of the supplied values as the
+    horizontal axis:
 
-            $slope = $top / $bottom
+        0, 1, 2, 3, and so on.
 
-            # Calculate where the trendline begins
-            $intercept = $yAverage - ($slope * $xAverage)
+    This means that the function assumes the observations are supplied in the
+    correct chronological or logical order and that they are evenly spaced.
 
-            # Generate one trendline value for each original data value
-            $trendline = foreach ($x in $xValues) {
-                [math]::Round($intercept + ($slope * $x), 2)
-            }
-            $Trend = Get-Trend -First ($trendline | select-object -First 1) -Last  ($trendline | select-object -Last 1)
-            Return [PSCustomObject]@{
-                Trendline = $trendline #| Select-Object @{N = 'TrendLine'; E = { $_ } }
-                Trend = $Trend
-            } 
-        }
+    After calculating the trendline, the function compares its first and last
+    values to classify the overall direction:
+
+        Increasing - The final trendline value is more than 105% of the first.
+        Decreasing - The final trendline value is less than 95% of the first.
+        Steady     - The final trendline value is between 95% and 105% of the first.
+
+    The Steady classification therefore allows for movement of approximately
+    five percent in either direction. This prevents small fluctuations from being
+    reported as a meaningful upward or downward trend.
+
+    The trend classification is based on the calculated trendline rather than the
+    first and last raw data values. This reduces the effect of individual spikes,
+    drops, and other short-term variations.
+
+    .PARAMETER Data
+    Specifies an ordered collection of numeric values from which the trendline is
+    calculated.
+
+    The values should normally be supplied in chronological order, from oldest to
+    newest. At least two numeric values are required.
+
+    Null values, text values, and other non-numeric content should be removed or
+    converted before calling the function.
+
+    The function is best suited to positive values such as CPU utilisation,
+    memory usage, response time, bandwidth consumption, and free disk space.
+
+    .INPUTS
+    System.Array
+
+    An array or other collection of numeric values can be supplied to the Data
+    parameter.
+
+    .OUTPUTS
+    System.Management.Automation.PSCustomObject
+
+    The function returns a custom object containing the following properties:
+
+    Trendline
+        An array containing one calculated trendline value for every original data
+        value. Each value is rounded to two decimal places.
+
+    Trend
+        A string containing one of the following classifications:
+
+            Increasing
+            Decreasing
+            Steady
+
+    .EXAMPLE
+    $data = 20, 22, 21, 25, 27, 29, 30
+
+    $result = Get-TrendLine -Data $data
+
+    $result.Trend
+    $result.Trendline
+
+    Calculates a trendline for seven observations. The Trendline property contains
+    seven calculated values, and the Trend property describes the overall
+    direction.
+
+    .EXAMPLE
+    $data = Get-Content '.\cpu-usage.txt' |
+        ForEach-Object { [double]$_ }
+
+    $result = Get-TrendLine -Data $data
+
+    [PSCustomObject]@{
+        Direction = $result.Trend
+        Points    = $result.Trendline.Count
+    }
+
+    Reads numeric values from a file, calculates the trendline, and reports the
+    direction and number of generated trendline points.
+
+    .EXAMPLE
+    $cpuData = 42, 48, 45, 51, 55, 53, 58, 61, 60, 64
+    $trendResult = Get-TrendLine -Data $cpuData
+
+    $chartSeries = [PSCustomObject]@{
+        ActualData = $cpuData
+        Trendline  = $trendResult.Trendline
+        Trend      = $trendResult.Trend
+    }
+
+    Creates an object containing both the original data and the calculated
+    trendline. These two arrays can be passed to a graphing function as separate
+    series because they contain the same number of data points.
+
+    .NOTES
+    The function performs a least-squares linear regression. It provides a useful
+    summary of the overall direction but does not identify seasonal behaviour,
+    short-term anomalies, or sudden changes within the data.
+
+    The classification uses a five-percent tolerance:
+
+        Less than 95% of the starting value = Decreasing
+        95% through 105%                    = Steady
+        More than 105%                      = Increasing
+
+    The function currently rounds trendline values to two decimal places. To
+    return whole numbers instead, change:
+
+        [math]::Round($intercept + ($slope * $x), 2)
+
+    to:
+
+        [math]::Round($intercept + ($slope * $x), 0)
+
+    The function requires at least two data values. A single value does not provide
+    enough information to calculate a slope.
+
+    The trend calculation divides by the first calculated trendline value.
+    Consequently, a first trendline value of zero will cause a division-by-zero
+    error. Negative starting values may also produce a trend classification that
+    is not meaningful under the percentage-based comparison.
+
+    Large isolated spikes can influence the calculated line. Input data should be
+    reviewed for invalid readings or collection errors before the trend is used in
+    formal reporting.
+    #>
+    Param($Data)
+    Function Get-Trend {
+        param($First, $Last)
+        $Percent = (100 / $First) * $Last
+        if ($Percent -gt 105) { $Trend = 'Increasing' }
+        elseif ($Percent -lt 95) { $Trend = 'Decreasing' }
+        else { $Trend = 'Steady' }
+        Return $Trend
+    }
+    # X values are the array positions: 0, 1, 2, 3...
+    $xValues = 0..($data.Count - 1)
+
+    # Calculate averages
+    $xAverage = ($xValues | Measure-Object -Average).Average
+    $yAverage = ($data    | Measure-Object -Average).Average
+
+    # Calculate the slope
+    $top = 0
+    $bottom = 0
+
+    for ($i = 0; $i -lt $data.Count; $i++) {
+        $xDifference = $xValues[$i] - $xAverage
+        $yDifference = $data[$i] - $yAverage
+
+        $top += $xDifference * $yDifference
+        $bottom += $xDifference * $xDifference
+    }
+
+    $slope = $top / $bottom
+
+    # Calculate where the trendline begins
+    $intercept = $yAverage - ($slope * $xAverage)
+
+    # Generate one trendline value for each original data value
+    $trendline = foreach ($x in $xValues) {
+        [math]::Round($intercept + ($slope * $x), 2)
+    }
+    $Trend = Get-Trend -First ($trendline | select-object -First 1) -Last  ($trendline | select-object -Last 1)
+    Return [PSCustomObject]@{
+        Trendline = $trendline 
+        Trend     = $Trend
+    } 
+}
