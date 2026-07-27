@@ -1,5 +1,13 @@
         Function Get-TrendLine {
             Param($Data)
+            Function Get-Trend {
+                param($First,$Last)
+                $Percent = (100/$First)*$Last
+                if($Percent -gt 105) {$Trend = 'Increasing'}
+                elseif($Percent -lt 95) {$Trend = 'Decreasing'}
+                else{$Trend = 'Steady'}
+                Return $Trend
+            }
             # X values are the array positions: 0, 1, 2, 3...
             $xValues = 0..($data.Count - 1)
 
@@ -28,6 +36,9 @@
             $trendline = foreach ($x in $xValues) {
                 [math]::Round($intercept + ($slope * $x), 2)
             }
-
-            Return $trendline | Select-Object @{N = 'TrendLine'; E = { $_ } }
+            $Trend = Get-Trend -First ($trendline | select-object -First 1) -Last  ($trendline | select-object -Last 1)
+            Return [PSCustomObject]@{
+                Trendline = $trendline #| Select-Object @{N = 'TrendLine'; E = { $_ } }
+                Trend = $Trend
+            } 
         }
