@@ -1,0 +1,17 @@
+Function Find-LargeFiles
+{
+    param($RootPath = "C:\",
+    $FilesAtOrAboveMB = 100)
+    $Error.clear()
+    $Errors = @()
+
+    $Files = Get-ChildItem $RootPath -File -Recurse -ErrorAction SilentlyContinue -ErrorVariable ScanErrors `
+    | Where-Object {$_.Length -ge ($FilesAtOrAboveMB * 1MB)}
+
+    $Errors = $ScanErrors | Where-Object {$_.Exception -is [System.UnauthorizedAccessException]} | ForEach-Object `
+    {$_ | Select-Object @{N='Path';E={$_.TargetObject}},@{N='Error';E={$_.CategoryInfo.Category}}}
+    $Files | Select-Object Name,Directory,@{N='Size(MB)';E={[math]::round($_.Length / 1MB,1)}},@{N='ExistedOnSystem(Days)';E={(New-TimeSpan -Start (Get-Date $_.CreationTime) -End (Get-Date)).Days}},@{N='LastWrite(Days)';E={(New-TimeSpan -Start (Get-Date $_.LastWriteTime) -End (Get-Date)).Days}},@{N='LastAccess(Days)';E={(New-TimeSpan -Start (Get-Date $_.LastAccessTime) -End (Get-Date)).Days}} | Sort-Object 'Size(MB)' -Descending | Out-GridView -Title "Files at or over $FilesAtOrAboveMB MB found in the $RootPath tree. - Click column header to sort by that column."
+    if($Errors){
+    Write-Host ("╔" + ("═" * 80) + "╗`n║ " + "Sadly, some access issues arose.".PadRight(78) + " ║`n║ " + "Permission denied errors may be resolved by running PowerShell".PadRight(78) + " ║`n║ " + "as a user with permission to access the affected folders.".PadRight(78) + " ║`n╚" + ("═" * 80) + "╝") -ForegroundColor Red
+    $Errors | Sort-Object Path | Format-Table}
+}
