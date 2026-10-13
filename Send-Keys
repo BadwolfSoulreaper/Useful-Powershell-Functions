@@ -1,0 +1,32 @@
+Function Send-Keys
+{
+    param($Wait = 5)
+
+    Add-Type -AssemblyName System.Windows.Forms
+
+    $SecureString = Read-Host "Please enter string to send" -AsSecureString
+
+    # Convert SecureString to plaintext
+    $StringToSend = [System.Net.NetworkCredential]::new(
+        "", $SecureString
+    ).Password
+
+    # Escape SendKeys special characters
+    $StringToSend = [regex]::Replace(
+        $StringToSend,
+        '[+^%~(){}\[\]]',
+        {
+            param($Match)
+            switch ($Match.Value) {
+                '{' { '{{}' }
+                '}' { '{}}' }
+                default { '{' + $Match.Value + '}' }
+            }
+        }
+    )
+
+    Write-Host "Sending string in $Wait seconds"
+    Start-Sleep -Seconds $Wait
+
+    [System.Windows.Forms.SendKeys]::SendWait($StringToSend)
+}
