@@ -1,31 +1,157 @@
+
 function Get-PrettyDate {
     <#
     .SYNOPSIS
-    Formats a date as "1st of January 2025 - 13:45".
-    
+        Formats a date using an English ordinal day suffix.
+
+    .DESCRIPTION
+        Converts a DateTime value into a human-readable string
+        containing the day, month, year, and time.
+
+        The day is displayed with its appropriate English ordinal
+        suffix (st, nd, rd, or th).
+
+        The resulting format is:
+
+            1st of January 2025 - 13:45
+
+        If no date is supplied, the current local date and time
+        are used.
+
+        Supports pipeline input and multiple DateTime values.
+
     .PARAMETER Date
-    The date to format. If omitted, the current date and time are used.
-    
+        The date and time to format.
+
+        If omitted, the current local date and time are used.
+
+        Accepts DateTime values and date strings that PowerShell
+        can convert to DateTime.
+
     .EXAMPLE
-    Get-PrettyDate
-    Returns the current date and time in a formatted string.
-    
+        Get-PrettyDate
+
+        Returns the current local date and time in the
+        specified format.
+
     .EXAMPLE
-    Get-PrettyDate -Date '2025-01-21'
-    Returns "21st of January 2025 - 00:00".
+        Get-PrettyDate -Date '2025-01-21'
+
+        21st of January 2025 - 00:00
+
+        Formats a supplied date with its ordinal suffix.
+
+    .EXAMPLE
+        Get-PrettyDate -Date '2025-02-11 14:30'
+
+        11th of February 2025 - 14:30
+
+        Demonstrates correct handling of the 11th, 12th,
+        and 13th, which always use the 'th' suffix.
+
+    .EXAMPLE
+        Get-Date | Get-PrettyDate
+
+        Formats a DateTime object supplied through the pipeline.
+
+    .EXAMPLE
+        @(
+            [datetime]'2025-01-01'
+            [datetime]'2025-01-02'
+            [datetime]'2025-01-03'
+        ) | Get-PrettyDate
+
+        1st of January 2025 - 00:00
+        2nd of January 2025 - 00:00
+        3rd of January 2025 - 00:00
+
+        Formats multiple dates supplied through the pipeline.
+
+    .OUTPUTS
+        System.String
+
+        A formatted date string containing the ordinal day,
+        full month name, year, and 24-hour time.
+
+    .NOTES
+        Function : Get-PrettyDate
+        Purpose  : Human-readable English date formatting
+        Format   : d[ordinal] of MMMM yyyy - HH:mm
+        Platform : Windows PowerShell 5.1 / PowerShell 7+
+
+        Month names use English regardless of the system's
+        regional settings.
+
+        Times are displayed in 24-hour format.
+        No time zone conversion is performed.
     #>
-    param([datetime]$Date)
 
-    if (!$Date) {
-        $Date = Get-Date
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(
+            Position = 0,
+            ValueFromPipeline = $true,
+            HelpMessage = 'Enter the date and time to format.'
+        )]
+        [datetime[]]$Date
+    )
+
+    begin {
+
+        # Use a fixed culture to ensure English month names.
+        $Culture = [System.Globalization.CultureInfo]::GetCultureInfo(
+            'en-GB'
+        )
+
+        # Track whether any dates were supplied through the pipeline.
+        $ReceivedPipelineInput = $false
     }
 
-    switch ($Date.Day) {
-        { $_ -in 1,21,31 } { $dateSuffix = 'st' }
-        { $_ -in 2,22 }    { $dateSuffix = 'nd' }
-        { $_ -in 3,23 }    { $dateSuffix = 'rd' }
-        default            { $dateSuffix = 'th' }
-    }
+    process {
 
-    "$($Date.Day)$dateSuffix of $(Get-Date -Date $Date -Format 'MMMM yyyy - HH:mm')"
+        # Use the current date only when no argument was supplied
+        # and no input has arrived through the pipeline.
+        if ($null -ne $_ -and
+            -not $PSBoundParameters.ContainsKey('Date')) {
+            $ReceivedPipelineInput = $true
+        }
+
+        if (-not $PSBoundParameters.ContainsKey('Date')) {
+            $Dates = @(Get-Date)
+        }
+        else {
+            $Dates = $Date
+        }
+
+        foreach ($CurrentDate in $Dates) {
+
+            # Extract the day of the month.
+            $Day = $CurrentDate.Day
+
+            # Determine the appropriate English ordinal suffix.
+            # Days 11, 12, and 13 are special cases.
+            if ($Day -in 11, 12, 13) {
+                $Suffix = 'th'
+            }
+            else {
+                $Suffix = switch ($Day % 10) {
+                    1 { 'st' }
+                    2 { 'nd' }
+                    3 { 'rd' }
+                    default { 'th' }
+                }
+            }
+
+            # Format the date using English month names
+            # and a 24-hour clock.
+            $FormattedDate = $CurrentDate.ToString(
+                'MMMM yyyy - HH:mm',
+                $Culture
+            )
+
+            # Return the completed human-readable date.
+            Write-Output "$Day$Suffix of $FormattedDate"
+        }
+    }
 }
