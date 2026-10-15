@@ -1,17 +1,292 @@
-Function Find-LargeFiles
-{
-    param($RootPath = "C:\",
-    $FilesAtOrAboveMB = 100)
-    $Error.clear()
-    $Errors = @()
 
-    $Files = Get-ChildItem $RootPath -File -Recurse -ErrorAction SilentlyContinue -ErrorVariable ScanErrors `
-    | Where-Object {$_.Length -ge ($FilesAtOrAboveMB * 1MB)}
+function Find-LargeFiles {
+    <#
+    .SYNOPSIS
+        Finds large files within a directory and its subdirectories.
 
-    $Errors = $ScanErrors | Where-Object {$_.Exception -is [System.UnauthorizedAccessException]} | ForEach-Object `
-    {$_ | Select-Object @{N='Path';E={$_.TargetObject}},@{N='Error';E={$_.CategoryInfo.Category}}}
-    $Files | Select-Object Name,Directory,@{N='Size(MB)';E={[math]::round($_.Length / 1MB,1)}},@{N='ExistedOnSystem(Days)';E={(New-TimeSpan -Start (Get-Date $_.CreationTime) -End (Get-Date)).Days}},@{N='LastWrite(Days)';E={(New-TimeSpan -Start (Get-Date $_.LastWriteTime) -End (Get-Date)).Days}},@{N='LastAccess(Days)';E={(New-TimeSpan -Start (Get-Date $_.LastAccessTime) -End (Get-Date)).Days}} | Sort-Object 'Size(MB)' -Descending | Out-GridView -Title "Files at or over $FilesAtOrAboveMB MB found in the $RootPath tree. - Click column header to sort by that column."
-    if($Errors){
-    Write-Host ("╔" + ("═" * 80) + "╗`n║ " + "Sadly, some access issues arose.".PadRight(78) + " ║`n║ " + "Permission denied errors may be resolved by running PowerShell".PadRight(78) + " ║`n║ " + "as a user with permission to access the affected folders.".PadRight(78) + " ║`n╚" + ("═" * 80) + "╝") -ForegroundColor Red
-    $Errors | Sort-Object Path | Format-Table}
+    .DESCRIPTION
+        Recursively searches a specified directory for files meeting
+        or exceeding a minimum size in megabytes.
+
+        Results include the file name, directory, size, age,
+        time since last modification, and time since last access.
+
+        By default, matching files are displayed in an interactive
+        Out-GridView window, sorted by size in descending order.
+
+        Use the PassThru parameter to return PowerShell objects
+        instead, allowing results to be filtered, exported, or
+        processed by other commands.
+
+        Access-denied errors are collected during the scan and
+        reported separately without interrupting the search.
+
+        NOTE: LastAccessTime may not reflect actual file usage
+        because Windows can disable or defer access-time updates.
+
+    .PARAMETER RootPath
+        The directory to search recursively.
+
+        Defaults to C:\.
+
+        The specified path must exist and be a directory.
+
+    .PARAMETER FilesAtOrAboveMB
+        The minimum file size, in megabytes, required for a file
+        to appear in the results.
+
+        Defaults to 100 MB.
+
+        Files equal to or larger than this value are included.
+
+    .PARAMETER PassThru
+        Returns matching files as PowerShell objects rather than
+        displaying them in Out-GridView.
+
+        Useful for automation, reporting, and CSV exports.
+
+    .EXAMPLE
+        Find-LargeFiles
+
+        Searches C:\ for files of 100 MB or larger and displays
+        the results in an interactive GridView window.
+
+    .EXAMPLE
+        Find-LargeFiles -RootPath 'D:\' -FilesAtOrAboveMB 500
+
+        Searches the D: drive for files of 500 MB or larger.
+
+    .EXAMPLE
+        Find-LargeFiles -RootPath 'C:\Users' -FilesAtOrAboveMB 250 -PassThru
+
+        Returns matching files as PowerShell objects.
+
+    .EXAMPLE
+        Find-LargeFiles -RootPath 'D:\Data' -FilesAtOrAboveMB 1000 -PassThru |
+            Export-Csv -Path 'C:\Temp\LargeFiles.csv' -NoTypeInformation
+
+        Exports files of 1,000 MB or larger to a CSV report.
+
+    .EXAMPLE
+        Find-LargeFiles -RootPath 'C:\' -FilesAtOrAboveMB 500 -PassThru |
+            Where-Object { $_.'LastWrite(Days)' -gt 365 }
+
+        Finds files of at least 500 MB that have not been
+        modified in more than 365 days.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+
+        When PassThru is specified, returns objects containing
+        file names, directories, sizes, and age information.
+
+        Without PassThru, results are sent to Out-GridView.
+
+    .NOTES
+        Function : Find-LargeFiles
+        Purpose  : Large file discovery and disk space analysis
+        Platform : Windows PowerShell 5.1 / PowerShell 7+
+
+        Out-GridView requires Windows PowerShell or a compatible
+        graphical environment with Out-GridView available.
+
+        Large directory trees may take considerable time to scan.
+        Some protected directories may require elevated permissions.
+
+        File age is calculated from filesystem timestamps and may
+        not represent the actual age of the file's contents.
+
+        1 MB is interpreted as 1,048,576 bytes.
+
+    .LINK
+        https://learn.microsoft.com/powershell/module/microsoft.powershell.management/get-childitem
+
+    .LINK
+        https://learn.microsoft.com/powershell/module/microsoft.powershell.utility/out-gridview
+    #>
+
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param (
+        [Parameter(
+            Position = 0,
+            HelpMessage = 'Enter the root directory to search.'
+        )]
+        [ValidateScript({
+            if (-not (Test-Path -LiteralPath $_ -PathType Container)) {
+                throw "Directory does not exist or is inaccessible: $_"
+            }
+            $true
+        })]
+        [string]$RootPath = 'C:\',
+
+        [Parameter(
+            Position = 1,
+            HelpMessage = 'Enter the minimum file size in megabytes.'
+        )]
+        [ValidateRange(0.001, [double]::MaxValue)]
+        [double]$FilesAtOrAboveMB = 100,
+
+        [Parameter(
+            HelpMessage = 'Return PowerShell objects instead of opening GridView.'
+        )]
+        [switch]$PassThru
+    )
+
+    # ------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------
+
+    # Convert the minimum file size into bytes.
+    $MinimumSizeBytes = $FilesAtOrAboveMB * 1MB
+
+    # Capture the current time once for consistent age calculations.
+    $CurrentDate = Get-Date
+
+    # Collect any errors encountered during directory traversal.
+    $ScanErrors = @()
+
+    # ------------------------------------------------------------
+    # File Discovery
+    # ------------------------------------------------------------
+
+    Write-Verbose "Scanning '$RootPath' for files >= $FilesAtOrAboveMB MB."
+
+    $Files = @(
+        Get-ChildItem -LiteralPath $RootPath -File -Recurse `
+            -ErrorAction SilentlyContinue `
+            -ErrorVariable +ScanErrors |
+            Where-Object {
+                $_.Length -ge $MinimumSizeBytes
+            }
+    )
+
+    Write-Verbose "Found $($Files.Count) matching files."
+
+    # ------------------------------------------------------------
+    # Process Matching Files
+    # ------------------------------------------------------------
+
+    $Results = @(
+        foreach ($File in $Files) {
+
+            # Calculate elapsed days from filesystem timestamps.
+            $CreationAge = ($CurrentDate - $File.CreationTime).Days
+            $WriteAge = ($CurrentDate - $File.LastWriteTime).Days
+            $AccessAge = ($CurrentDate - $File.LastAccessTime).Days
+
+            # Create an object suitable for display or export.
+            [PSCustomObject]@{
+                Name                    = $File.Name
+                Directory               = $File.DirectoryName
+                'Size(MB)'              = [math]::Round(
+                    $File.Length / 1MB, 1
+                )
+                'ExistedOnSystem(Days)' = $CreationAge
+                'LastWrite(Days)'       = $WriteAge
+                'LastAccess(Days)'      = $AccessAge
+            }
+        }
+    )
+
+    # Sort by file size, largest first.
+    $Results = @(
+        $Results | Sort-Object -Property 'Size(MB)' -Descending
+    )
+
+    # ------------------------------------------------------------
+    # Display or Return Results
+    # ------------------------------------------------------------
+
+    if ($PassThru) {
+
+        # Return objects for further PowerShell processing.
+        $Results
+    }
+    elseif ($Results.Count -gt 0) {
+
+        # Check whether Out-GridView is available.
+        if (-not (Get-Command Out-GridView -ErrorAction SilentlyContinue)) {
+            Write-Warning (
+                'Out-GridView is unavailable. ' +
+                'Displaying results in the console instead.'
+            )
+
+            $Results | Format-Table -AutoSize
+        }
+        else {
+            $GridTitle = (
+                "Files >= $FilesAtOrAboveMB MB in '$RootPath' " +
+                '- Click column headers to sort.'
+            )
+
+            $Results | Out-GridView -Title $GridTitle
+        }
+    }
+    else {
+        Write-Verbose "No matching files found in '$RootPath'."
+    }
+
+    # ------------------------------------------------------------
+    # Access-Denied Error Reporting
+    # ------------------------------------------------------------
+
+    # Retain only errors caused by insufficient permissions.
+    $AccessErrors = @(
+        $ScanErrors | Where-Object {
+            $_.Exception -is [System.UnauthorizedAccessException]
+        }
+    )
+
+    if ($AccessErrors.Count -gt 0) {
+
+        # Remove duplicate paths and prepare a concise report.
+        $DeniedPaths = @(
+            $AccessErrors |
+                ForEach-Object {
+                    [PSCustomObject]@{
+                        Path  = [string]$_.TargetObject
+                        Error = $_.CategoryInfo.Category
+                    }
+                } |
+                Sort-Object -Property Path -Unique
+        )
+
+        Write-Warning (
+            "$($DeniedPaths.Count) location(s) could not be accessed. " +
+            'Try running PowerShell with appropriate permissions.'
+        )
+
+        # Display the inaccessible locations when verbose output
+        # has been requested.
+        if ($VerbosePreference -eq 'Continue') {
+            Write-Verbose 'Directories with access restrictions:'
+
+            $DeniedPaths |
+                Format-Table -AutoSize |
+                Out-String |
+                Write-Verbose
+        }
+    }
+
+    # Report any remaining filesystem enumeration errors.
+    $OtherErrors = @(
+        $ScanErrors | Where-Object {
+            $_.Exception -isnot [System.UnauthorizedAccessException]
+        }
+    )
+
+    if ($OtherErrors.Count -gt 0) {
+        Write-Warning (
+            "$($OtherErrors.Count) additional filesystem " +
+            'error(s) occurred during the scan. ' +
+            'Use -Verbose for additional details.'
+        )
+
+        if ($VerbosePreference -eq 'Continue') {
+            foreach ($ScanError in $OtherErrors) {
+                Write-Verbose $ScanError.ToString()
+            }
+        }
+    }
 }
