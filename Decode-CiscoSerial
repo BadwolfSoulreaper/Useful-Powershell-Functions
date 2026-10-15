@@ -1,0 +1,210 @@
+function Decode-CiscoSerial {
+    <#
+    .SYNOPSIS
+        Decodes Cisco device serial numbers.
+
+    .DESCRIPTION
+        Extracts manufacturing information from Cisco serial numbers,
+        including manufacturer, manufacturing location, production
+        year, week, and approximate month.
+
+        Common Cisco serial number format:
+
+            LLLYYWWXXXX
+
+        LLL  - Manufacturing location/manufacturer prefix.
+        YY   - Manufacturing year (offset from 1996).
+        WW   - Manufacturing week number.
+        XXXX - Unique device identifier.
+
+        Returns a PSCustomObject for each serial number, allowing
+        results to be displayed, filtered, sorted, or exported.
+
+        Manufacturer mappings are based on publicly available
+        references and are not guaranteed to be authoritative.
+
+    .PARAMETER Serial
+        One or more Cisco serial numbers to decode.
+
+        Accepts serial numbers from the pipeline.
+
+    .EXAMPLE
+        Decode-CiscoSerial -Serial 'FOC2844ABCD'
+
+        Returns a PowerShell object containing manufacturing details.
+
+    .EXAMPLE
+        'FOC2844ABCD', 'JSH2712ABCD' | Decode-CiscoSerial |
+            Format-Table -AutoSize
+
+        Displays multiple decoded serial numbers in a table.
+
+    .EXAMPLE
+        Get-Content 'C:\Temp\CiscoSerials.txt' |
+            Decode-CiscoSerial |
+            Export-Csv 'C:\Temp\CiscoInventory.csv' -NoTypeInformation
+
+        Exports decoded serial numbers to a CSV file.
+
+    .NOTES
+        Compatible with Windows PowerShell 5.1 and PowerShell 7+.
+
+        Manufacturing dates are approximate and are calculated
+        using an ISO calendar week reference.
+    #>
+
+    [CmdletBinding()]
+    param (
+        [Parameter(
+            Mandatory,
+            ValueFromPipeline,
+            Position = 0
+        )]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$Serial
+    )
+
+    process {
+        foreach ($Item in $Serial) {
+
+            # Normalize the serial number.
+            $Item = $Item.Trim().ToUpperInvariant()
+
+            # Validate the serial number structure.
+            if ($Item -notmatch '^[A-Z0-9]{3}\d{4}[A-Z0-9]*$') {
+                Write-Warning "Invalid Cisco serial number: $Item"
+                continue
+            }
+
+            # Extract the manufacturing prefix and date codes.
+            $Prefix = $Item.Substring(0, 3)
+            $Year = 1996 + [int]$Item.Substring(3, 2)
+            $Week = [int]$Item.Substring(5, 2)
+
+            # --------------------------------------------------------
+            # Manufacturing Location and Manufacturer Lookup
+            # --------------------------------------------------------
+
+            $ManufacturingInfo = switch ($Prefix) {
+
+                # Celestica
+                'CAT' { 'Canada/Mexico', 'Celestica'; break }
+                'CTC' { 'Canada', 'Celestica'; break }
+                { $_ -in 'CTH', 'CTI', 'CTP' } {
+                    'Thailand', 'Celestica'; break
+                }
+
+                # Foxconn
+                { $_ -in 'FCH', 'FCL', 'FJC', 'FNS', 'FPR', 'FRT', 'FTS' } {
+                    'China', 'Foxconn'; break
+                }
+                'FCW' { 'Wuxi, China', 'Foxconn'; break }
+                'FOC' { 'Shenzhen, China', 'Foxconn'; break }
+                'FHK' { 'Hong Kong', 'Foxconn'; break }
+                { $_ -in 'FDO', 'FGL' } {
+                    'Uncertain', 'Foxconn'; break
+                }
+
+                # Jabil
+                'JAB' { 'Florida, USA', 'Jabil'; break }
+                { $_ -in 'JAD', 'JAF', 'JAZ' } {
+                    'Mexico', 'Jabil'; break
+                }
+                'JAE' { 'Mexico/USA', 'Jabil'; break }
+                'JPE' { 'Malaysia', 'Jabil'; break }
+                'JSH' { 'Shanghai, China', 'Jabil'; break }
+
+                # Solectron / Flextronics
+                { $_ -in 'PEA', 'PEI' } {
+                    'China', 'Flextronics'; break
+                }
+                'PEM' { 'Malaysia', 'Flextronics'; break }
+                'PEN' { 'Malaysia', 'Solectron/Flex'; break }
+                'PET' { 'Thailand', 'Flextronics'; break }
+                'TAU' { 'Texas, USA', 'Solectron'; break }
+
+                # Sanmina
+                { $_ -in 'SAI', 'SAL' } {
+                    'Malaysia', 'Sanmina'; break
+                }
+                'SAN' { 'Mexico', 'Sanmina'; break }
+                'SFC' { 'China', 'Sanmina'; break }
+                'SFT' { 'Thailand', 'Sanmina'; break }
+
+                # Wistron
+                { $_ -in 'WMC', 'WMP', 'WMS', 'WMT', 'WMX' } {
+                    'Taiwan', 'Wistron'; break
+                }
+
+                # Cisco / Foxconn Associated Facilities
+                { $_ -in 'LFC', 'LFD', 'LFO', 'LFS', 'LFT' } {
+                    'China', 'Cisco/Foxconn'; break
+                }
+
+                # Taiwan Manufacturing
+                { $_ -in 'KTC', 'KTN', 'KTP', 'KTS', 'KTT' } {
+                    'Taiwan', 'Uncertain'; break
+                }
+
+                # Unknown Manufacturing Prefix
+                default {
+                    'Unknown', 'Unknown'
+                }
+            }
+
+            # Separate the location and manufacturer.
+            $Location = $ManufacturingInfo[0]
+            $Manufacturer = $ManufacturingInfo[1]
+
+            # --------------------------------------------------------
+            # Manufacturing Date Calculation
+            # --------------------------------------------------------
+
+            # Validate the manufacturing week.
+            if ($Week -lt 1 -or $Week -gt 53) {
+                Write-Warning "Invalid manufacturing week in $Item"
+                continue
+            }
+
+            # January 4 always belongs to ISO week 1.
+            $JanuaryFourth = [datetime]::new($Year, 1, 4)
+
+            # Find the Monday of ISO week 1.
+            $DayOffset = (
+                ([int]$JanuaryFourth.DayOfWeek + 6) % 7
+            )
+
+            $FirstMonday = $JanuaryFourth.AddDays(-$DayOffset)
+
+            # Find the Monday of the manufacturing week.
+            $ManufacturingDate = $FirstMonday.AddDays(
+                ($Week - 1) * 7
+            )
+
+            # Ensure the week belongs to the encoded ISO year.
+            if ($ManufacturingDate.AddDays(3).Year -ne $Year) {
+                Write-Warning "Invalid ISO manufacturing week in $Item"
+                continue
+            }
+
+            # Convert the date into a month name.
+            $Month = $ManufacturingDate.ToString(
+                'MMMM',
+                [System.Globalization.CultureInfo]::InvariantCulture
+            )
+
+            # --------------------------------------------------------
+            # Return Structured Manufacturing Information
+            # --------------------------------------------------------
+
+            [PSCustomObject]@{
+                Serial       = $Item
+                Location     = $Location
+                Manufacturer = $Manufacturer
+                Year         = $Year
+                Week         = $Week
+                Month        = $Month
+            }
+        }
+    }
+}
