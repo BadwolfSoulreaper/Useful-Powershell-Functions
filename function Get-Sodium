@@ -1,5 +1,98 @@
-function Get-Sodium
-{
-  param($Salt)
-  Return ($Salt *1000)/2.5
+function Get-Sodium {
+    <#
+    .SYNOPSIS
+        Converts dietary salt content into sodium content.
+
+    .DESCRIPTION
+        Calculates the approximate sodium content in milligrams
+        from a given quantity of salt expressed in grams.
+
+        Food manufacturers commonly list salt content on nutritional
+        labels, particularly in the UK and Europe, whereas some
+        dietary tracking applications use sodium in milligrams.
+
+        The conversion uses the standard nutritional relationship:
+
+            Sodium (mg) = Salt (g) * 1000 / 2.5
+
+        This function supports pipeline input and can process
+        multiple values.
+
+    .PARAMETER Salt
+        The amount of salt in grams to convert into sodium
+        expressed in milligrams.
+
+        Accepts positive numeric values, including decimals.
+
+    .EXAMPLE
+        Get-Sodium -Salt 1.5
+
+        600
+
+        Converts 1.5 grams of salt into 600 milligrams of sodium.
+
+    .EXAMPLE
+        Get-Sodium 0.75
+
+        300
+
+        Converts 0.75 grams of salt into 300 milligrams of sodium.
+
+    .EXAMPLE
+        1.5, 2.0, 0.5 | Get-Sodium
+
+        600
+        800
+        200
+
+        Converts multiple salt values supplied through the pipeline.
+
+    .EXAMPLE
+        Get-Sodium -Salt 2.5 | ForEach-Object {
+            "{0:N0} mg of sodium" -f $_
+        }
+
+        1,000 mg of sodium
+
+        Demonstrates how to format the result with a unit suffix.
+
+    .OUTPUTS
+        System.Double
+
+        The calculated sodium content in milligrams.
+
+    .NOTES
+        Function : Get-Sodium
+        Purpose  : Dietary salt-to-sodium conversion
+        Units    : Salt in grams, sodium in milligrams
+        Platform : Windows PowerShell 5.1 / PowerShell 7+
+
+        This calculation is based on the conventional nutritional
+        conversion factor of 2.5 grams of salt per gram of sodium.
+
+    #>
+
+    [CmdletBinding()]
+    [OutputType([double])]
+    param (
+        [Parameter(
+            Mandatory = $true,
+            ValueFromPipeline = $true,
+            Position = 0,
+            HelpMessage = 'Enter the amount of salt in grams.'
+        )]
+        [ValidateRange(0, [double]::MaxValue)]
+        [double[]]$Salt
+    )
+
+    process {
+        foreach ($Value in $Salt) {
+
+            # Convert grams of salt to milligrams of sodium.
+            $Sodium = ($Value * 1000) / 2.5
+
+            # Return the calculated sodium content.
+            Write-Output $Sodium
+        }
+    }
 }
