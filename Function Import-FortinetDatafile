@@ -1,0 +1,74 @@
+Function Import-FortinetDatafile
+{
+    param
+    (
+    [Parameter(Mandatory = $true)]
+    [ValidateScript({
+        if (-not (Test-Path -LiteralPath $_ -PathType Leaf)) {
+            throw "The specified file does not exist: $_"
+        }
+        $true
+    })]
+    [string]$FullFilePath,
+
+    [string]$CSVOutput
+    )
+    $Json = Get-Content -LiteralPath $FullFilePath -Raw | ConvertFrom-Json
+    $ADOM = $Json.params | Where-Object{$_.URL -eq '/ADOM'} | Select-Object -ExpandProperty Data | Select-Object Name,os_ver,@{N='Device';E={$_.'Object Member'.Name}}
+    $AdomLookup = @{}
+
+    foreach ($Entry in $Adom)
+    {
+        # Skip ADOMs that contain no devices.
+        if (-not $Entry.Device) { continue }
+
+        foreach ($DeviceName in $Entry.Device)
+        {
+            # Skip null, empty, or whitespace-only device names.
+            if ([string]::IsNullOrWhiteSpace($DeviceName)) { continue }
+
+            # Create a new list if the device hasn't been encountered.
+            if (-not $AdomLookup.ContainsKey($DeviceName))
+            {
+                $AdomLookup[$DeviceName] = [System.Collections.Generic.List[string]]::new()
+            }
+
+            # Add the ADOM, avoiding duplicate entries.
+            if (-not $AdomLookup[$DeviceName].Contains($Entry.Name))
+            {
+                $AdomLookup[$DeviceName].Add($Entry.Name)
+            }
+        }
+    }
+    $Devices = $Json.params | Where-Object{$_.URL -match 'Device'} | Select-Object -ExpandProperty Data | Select-Object `
+    @{N='Name';                 E={$_.name}},
+    @{N='SerialNumber';         E={$_.sn}},
+    @{N='Description';          E={$_.desc}},
+    @{N='ADOM'; E={$AdomLookup[$_.Name] -join ', '}},
+    @{N='Platform';             E={$_.platform_str}},
+    @{N='OperatingSystem';      E={$_.os_type}},
+    @{N='OSVersion';            E={$_.os_ver}},
+    @{N='FirmwareVersion';      E={$_.version}},
+    @{N='Build';                E={$_.build}},
+    @{N='Branch';               E={$_.branch_pt}},
+    @{N='ManagementMode';       E={$_.mgmt_mode}},
+    @{N='IPAddress';            E={$_.ip}},
+    @{N='ManagementInterface';  E={$_.mgmt_if}},
+    @{N='Hostname';             E={$_.hostname}},
+    @{N='HardwareGeneration';   E={$_.hw_generation}},
+    @{N='HardwareRevision';     E={"$($_.hw_rev_major).$($_.hw_rev_minor)"}},
+    @{N='HighAvailabilityMode'; E={$_.ha_mode}},
+    @{N='HAGroupID';            E={$_.ha_group_id}},
+    @{N='HAGroupName';          E={$_.ha_group_name}},
+    @{N='HardDiskSize';         E={$_.hdisk_size}},
+    @{N='LogDiskSize';          E={$_.logdisk_size}},
+    @{N='VDOMCount';            E={$_.maxvdom}},
+    @{N='ManagementVDOM';       E={$_.mgt_vdom}},
+    @{N='IPSVersion';           E={$_.ips_ver}},
+    @{N='ApplicationVersion';   E={$_.app_ver}},
+    @{N='AntivirusVersion';     E={$_.av_ver}},
+    @{N='Role';                 E={$_.role}},
+    @{N='Priority';             E={$_.prio}}
+    $Devices
+    if($CSVOutput){$Devices | Export-Csv -Path $CSVOutput -NoTypeInformation}
+}
