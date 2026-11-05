@@ -1,0 +1,53 @@
+
+function Get-CVEInformation {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ValidatePattern('^CVE-\d{4}-\d{4,}$')]
+        [string]$CVE
+    )
+
+    process {
+        try {
+            $URI = "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=$CVE"
+
+            $Response = Invoke-RestMethod -Uri $URI -ErrorAction Stop
+
+            if (-not $Response.vulnerabilities) {
+                Write-Warning "No information found for $CVE"
+                return
+            }
+
+            $Entry = $Response.vulnerabilities[0].cve
+
+            $Description = $Entry.descriptions |
+                Where-Object lang -eq 'en' |
+                Select-Object -First 1 -ExpandProperty value
+
+            $Metrics = $Entry.metrics
+
+            $CVSS = if ($Metrics.cvssMetricV31) {
+                $Metrics.cvssMetricV31 |
+                    Where-Object type -eq 'Primary' |
+                    Select-Object -First 1
+            }
+
+            if (-not $CVSS -and $Metrics.cvssMetricV31) {
+                $CVSS = $Metrics.cvssMetricV31[0]
+            }
+
+            [PSCustomObject]@{
+                CVE         = $Entry.id
+                Description = $Description
+                Severity    = $CVSS.cvssData.baseSeverity
+                CVSSScore   = $CVSS.cvssData.baseScore
+                Published   = $Entry.published
+                Modified    = $Entry.lastModified
+                URL         = "https://nvd.nist.gov/vuln/detail/$CVE"
+            }
+        }
+        catch {
+            Write-Error "Failed to retrieve ${CVE}: $_"
+        }
+    }
+}
